@@ -1,0 +1,110 @@
+---
+title: "Keras_mnist with Torch"
+output: html_notebook
+---
+
+```{r setup}
+library(torch)
+library(torchvision)
+```
+
+```{r}
+train_ds <- kmnist_dataset(
+  ".",
+  download = TRUE,
+  train = TRUE,
+  transform = transform_to_tensor
+)
+
+test_ds <- kmnist_dataset(
+  ".",
+  download = TRUE,
+  train = FALSE,
+  transform = transform_to_tensor
+)
+```
+
+```{r}
+train_ds[1]
+```
+```{r}
+train_dl <- dataloader(train_ds, batch_size = 32, shuffle = TRUE)
+test_dl <- dataloader(test_ds, batch_size = 32)
+```
+
+Again, torch makes it easy to verify we did the correct thing. To take a look at the content of the first batch, do
+
+```{r}
+train_iter <- train_dl$.iter()
+train_iter$.next()
+```
+
+Functionality like this may not seem indispensable when working with a well-known dataset, but it will turn out to be very useful when a lot of domain-specific pre-processing is required.
+
+Now that we’ve seen how to load data, all prerequisites are fulfilled for visualizing them. Here is the code that was used to display the first batch of characters, above:
+
+```{r}
+par(mfrow = c(4,8), mar = rep(0, 4))
+images <- train_dl$.iter()$.next()[[1]][1:32, 1, , ] 
+images %>%
+  purrr::array_tree(1) %>%
+  purrr::map(as.raster) %>%
+  purrr::iwalk(~{plot(.x)})
+```
+
+```{r}
+net <- nn_module(
+  
+  "KMNIST-CNN",
+  
+  initialize = function() {
+    # in_channels, out_channels, kernel_size, stride = 1, padding = 0
+    self$conv1 <- nn_conv2d(1, 32, 3)
+    self$conv2 <- nn_conv2d(32, 64, 3)
+    self$dropout1 <- nn_dropout2d(0.25)
+    self$dropout2 <- nn_dropout2d(0.5)
+    self$fc1 <- nn_linear(9216, 128)
+    self$fc2 <- nn_linear(128, 10)
+  },
+  
+  forward = function(x) {
+    x %>% 
+      self$conv1() %>%
+      nnf_relu() %>%
+      self$conv2() %>%
+      nnf_relu() %>%
+      nnf_max_pool2d(2) %>%
+      self$dropout1() %>%
+      torch_flatten(start_dim = 2) %>%
+      self$fc1() %>%
+      nnf_relu() %>%
+      self$dropout2() %>%
+      self$fc2()
+  }
+)
+```
+The layers – apologies: modules – themselves may look familiar. Unsurprisingly, nn_conv2d() performs two-dimensional convolution; nn_linear() multiplies by a weight matrix and adds a vector of biases. But what are those numbers: nn_linear(128, 10), say?
+
+In torch, instead of the number of units in a layer, you specify input and output dimensionalities of the “data” that run through it. Thus, nn_linear(128, 10) has 128 input connections and outputs 10 values – one for every class. In some cases, such as this one, specifying dimensions is easy – we know how many input edges there are (namely, the same as the number of output edges from the previous layer), and we know how many output values we need. But how about the previous module? How do we arrive at 9216 input connections?
+
+Here, a bit of calculation is necessary. We go through all actions that happen in forward() – if they affect shapes, we keep track of the transformation; if they don’t, we ignore them.
+
+So, we start with input tensors of shape batch_size x 1 x 28 x 28. Then,
+
+```{r}
+model <- net()
+#model$to(device = "cuda")
+```
+
+
+```{r}
+optimizer <- optim_adam(model$parameters)
+loss <- nnf_cross_entropy(output, b[[2]])
+```
+
+
+
+
+
+
+
